@@ -1,4 +1,4 @@
-name: AI Code Review
+name: AI Code Review (Debug)
 
 on:
   pull_request:
@@ -9,8 +9,8 @@ permissions:
   contents: read
 
 jobs:
-  ai-review:
-    name: AI Code Review with Anthropic
+  ai-review-debug:
+    name: AI Code Review with Debug Output
     runs-on: ubuntu-latest
 
     steps:
@@ -19,21 +19,43 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Test comment posting first
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: '🧪 **Debug Test**: GitHub comment posting works!'
+            });
+
       - name: Get PR diff
         id: diff
         run: |
-          git fetch origin '${{ github.base_ref }}'
-          DIFF=$(git diff 'origin/${{ github.base_ref }}'...HEAD)
-          echo "diff<<EOF" >> $GITHUB_OUTPUT
-          echo "$DIFF" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          git fetch origin "${{ github.base_ref }}"
+          DIFF=$(git diff origin/"${{ github.base_ref }}"...HEAD)
+          echo "Diff size: $(echo "$DIFF" | wc -c) characters"
+          {
+            echo 'diff<<EOF'
+            echo "$DIFF"
+            echo 'EOF'
+          } >> $GITHUB_OUTPUT
 
       - name: Load review rules
         id: rules
         run: |
+          echo "Loading review rules..."
+
           REACT_RULES=$(cat .github/ai-review/react-review.md)
+          echo "React rules size: $(echo "$REACT_RULES" | wc -c)"
+
           JAVA_RULES=$(cat .github/ai-review/java-review.md)
+          echo "Java rules size: $(echo "$JAVA_RULES" | wc -c)"
+
           SECURITY_RULES=$(cat .github/ai-review/security-review.md)
+          echo "Security rules size: $(echo "$SECURITY_RULES" | wc -c)"
 
           echo "react<<EOF" >> $GITHUB_OUTPUT
           echo "$REACT_RULES" >> $GITHUB_OUTPUT
@@ -52,6 +74,8 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
+          echo "Building prompt..."
+
           PROMPT="You are an expert code reviewer. Please review the following Pull Request changes according to these guidelines:
 
           ## React Frontend Review Guidelines
@@ -91,6 +115,9 @@ jobs:
           (List positive aspects)
           "
 
+          echo "Prompt size: $(echo "$PROMPT" | wc -c) characters"
+          echo "Calling Anthropic API..."
+
           RESPONSE=$(curl -s https://api.anthropic.com/v1/messages \
             -H "content-type: application/json" \
             -H "x-api-key: $ANTHROPIC_API_KEY" \
@@ -106,21 +133,68 @@ jobs:
               ]
             }")
 
+          echo "API Response received"
+          echo "Response size: $(echo "$RESPONSE" | wc -c) characters"
+
+          # Check for API errors
+          ERROR_TYPE=$(echo "$RESPONSE" | jq -r '.error.type // empty')
+          if [ ! -z "$ERROR_TYPE" ]; then
+            echo "ERROR: API returned error type: $ERROR_TYPE"
+            echo "Error message: $(echo "$RESPONSE" | jq -r '.error.message')"
+            exit 1
+          fi
+
           REVIEW_TEXT=$(echo "$RESPONSE" | jq -r '.content[0].text')
+
+          echo "Review text extracted"
+          echo "Review size: $(echo "$REVIEW_TEXT" | wc -c) characters"
+          echo "First 200 characters of review:"
+          echo "$REVIEW_TEXT" | head -c 200
+          echo ""
+
+          if [ -z "$REVIEW_TEXT" ] || [ "$REVIEW_TEXT" = "null" ]; then
+            echo "ERROR: Review text is empty!"
+            exit 1
+          fi
 
           echo "review<<EOF" >> $GITHUB_OUTPUT
           echo "$REVIEW_TEXT" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
+
+          echo "Review saved to output successfully"
+
+      - name: Show review in logs
+        run: |
+          echo "==================================="
+          echo "AI REVIEW CONTENT:"
+          echo "==================================="
+          echo "${{ steps.review.outputs.review }}"
+          echo "==================================="
+
       - name: Post review comment
+        env:
+          REVIEW_CONTENT: ${{ steps.review.outputs.review }}
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const review = `${{ steps.review.outputs.review }}`;
+            const review = process.env.REVIEW_CONTENT;
 
-            github.rest.issues.createComment({
+            console.log('Review length:', review ? review.length : 0);
+            console.log('Review preview:', review ? review.substring(0, 100) : 'EMPTY');
+
+            if (!review || review.trim() === '' || review === 'null') {
+              core.setFailed('Review content is empty or null!');
+              return;
+            }
+
+            const body = `## 🤖 AI Code Review\n\n${review}\n\n---\n*Powered by Claude (Anthropic)*`;
+
+            await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              body: `## 🤖 AI Code Review\n\n${review}\n\n---\n*Powered by Claude (Anthropic)*`
+              body: body
             });
+
+            console.log('Comment posted successfully!');
