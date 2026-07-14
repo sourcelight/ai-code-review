@@ -1,8 +1,21 @@
-name: AI Code Review (Debug)
+name: AI Code Review (Debug - Manual Only)
+
+# This workflow is DISABLED for automatic triggering
+# It will only run when manually triggered from GitHub Actions UI
+# This prevents API conflicts with the main ai-review.yml workflow
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
+  workflow_dispatch:  # Manual trigger only
+    inputs:
+      pr_number:
+        description: 'PR number to review'
+        required: true
+        type: number
+
+# Uncomment below to enable automatic triggering (but this causes API conflicts)
+# on:
+#   pull_request:
+#     types: [opened, synchronize, reopened]
 
 permissions:
   pull-requests: write
@@ -27,23 +40,35 @@ jobs:
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: context.issue.number,
+              issue_number: ${{ github.event.inputs.pr_number }},
               body: '🧪 **Debug Test**: GitHub comment posting works!'
             });
 
       - name: Get PR diff
         id: diff
         run: |
-          BASE_REF="${{ github.base_ref }}"
+          # For manual trigger, we need to fetch the PR details
+          PR_NUMBER="${{ github.event.inputs.pr_number }}"
+          echo "Fetching PR #$PR_NUMBER details..."
+
+          # Get base branch from PR
+          BASE_REF=$(gh pr view "$PR_NUMBER" --json baseRefName --jq '.baseRefName')
+          HEAD_REF=$(gh pr view "$PR_NUMBER" --json headRefName --jq '.headRefName')
+
           echo "Base branch: $BASE_REF"
+          echo "Head branch: $HEAD_REF"
+
           git fetch origin "$BASE_REF"
-          DIFF=$(git diff "origin/$BASE_REF"...HEAD)
+          git fetch origin "$HEAD_REF"
+          DIFF=$(git diff "origin/$BASE_REF"..."origin/$HEAD_REF")
           echo "Diff size: $(echo "$DIFF" | wc -c) characters"
           {
             echo 'diff<<EOF'
             echo "$DIFF"
             echo 'EOF'
           } >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Load review rules
         id: rules
@@ -207,12 +232,12 @@ jobs:
               return;
             }
 
-            const body = `## 🤖 AI Code Review\n\n${review}\n\n---\n*Powered by Claude (Anthropic)*`;
+            const body = `## 🤖 AI Code Review (Debug Mode)\n\n${review}\n\n---\n*Powered by Claude (Anthropic) - Manual Debug Run*`;
 
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: context.issue.number,
+              issue_number: ${{ github.event.inputs.pr_number }},
               body: body
             });
 
