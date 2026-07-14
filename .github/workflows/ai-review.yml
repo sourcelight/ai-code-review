@@ -52,66 +52,71 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          PROMPT="You are an expert code reviewer. Please review the following Pull Request changes according to these guidelines:
-
+          cat > /tmp/review_prompt.txt << 'PROMPT_EOF'
+          You are an expert code reviewer. Please review the following Pull Request changes according to these guidelines:
+          
           ## React Frontend Review Guidelines
           ${{ steps.rules.outputs.react }}
-
+          
           ## Java Backend Review Guidelines
           ${{ steps.rules.outputs.java }}
-
+          
           ## Security Review Guidelines
           ${{ steps.rules.outputs.security }}
-
+          
           ## Pull Request Diff
-          \`\`\`diff
+          ```diff
           ${{ steps.diff.outputs.diff }}
-          \`\`\`
-
+          ```
+          
           Please provide your review in the following format:
-
+          
           # Code Review Summary
-
+          
           ## Overall Assessment
           [Brief summary]
-
+          
           ## Critical Issues
           [List critical issues or 'None found']
-
+          
           ## Medium Issues
           [List medium issues or 'None found']
-
+          
           ## Minor Issues
           [List minor issues or 'None found']
-
+          
           ## Suggested Improvements
           [List suggestions]
-
+          
           ## Positive Observations
           [List positive aspects]
-          "
-
+          PROMPT_EOF
+          
+          PROMPT=$(cat /tmp/review_prompt.txt)
+          
           RESPONSE=$(curl -s https://api.anthropic.com/v1/messages \
             -H "content-type: application/json" \
             -H "x-api-key: $ANTHROPIC_API_KEY" \
             -H "anthropic-version: 2023-06-01" \
-            -d "{
-              \"model\": \"claude-sonnet-4-6\",
-              \"max_tokens\": 4096,
-              \"messages\": [
-                {
-                  \"role\": \"user\",
-                  \"content\": $(echo "$PROMPT" | jq -Rs .)
-                }
-              ]
-            }")
-
+            -d @- << 'JSON_EOF'
+          {
+            "model": "claude-sonnet-4-6",
+            "max_tokens": 4096,
+            "messages": [
+              {
+                "role": "user",
+                "content": $(cat /tmp/review_prompt.txt | jq -Rs .)
+              }
+            ]
+          }
+          JSON_EOF
+          )
+          
           REVIEW_TEXT=$(echo "$RESPONSE" | jq -r '.content[0].text')
-
+          
           echo "review<<EOF" >> $GITHUB_OUTPUT
           echo "$REVIEW_TEXT" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
-
       - name: Post review comment
         uses: actions/github-script@v7
         with:
