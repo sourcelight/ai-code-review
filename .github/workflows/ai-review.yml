@@ -64,6 +64,15 @@ jobs:
           SECURITY_RULES: ${{ steps.rules.outputs.security }}
           PR_DIFF: ${{ steps.diff.outputs.diff }}
         run: |
+          # Debug: Check API key is set and has correct format
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "ERROR: ANTHROPIC_API_KEY is empty!"
+            exit 1
+          fi
+          echo "API key length: ${#ANTHROPIC_API_KEY} characters"
+          echo "API key starts with: ${ANTHROPIC_API_KEY:0:10}..."
+          echo "API key ends with: ...${ANTHROPIC_API_KEY: -4}"
+
           PROMPT="You are an expert code reviewer. Please review the following Pull Request changes according to these guidelines:
 
           ## React Frontend Review Guidelines
