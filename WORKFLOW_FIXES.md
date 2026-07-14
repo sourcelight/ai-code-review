@@ -1,16 +1,17 @@
 # GitHub Actions Workflow Fixes
 
-## Error: "bad substitution"
+## Error: "bad substitution" (Multiple Locations)
 
 ### Problem
-The workflow was failing with error:
+The workflow was failing with errors:
 ```
 git fetch origin : bad substitution
+echo : bad substitution
 Error: Process completed with exit code 1.
 ```
 
 ### Root Cause
-GitHub Actions expressions like `${{ github.base_ref }}` were being used directly inside bash variable expansions, causing the shell to misinterpret them.
+GitHub Actions expressions like `${{ github.base_ref }}` and `${{ steps.rules.outputs.react }}` were being used directly inside bash scripts, causing the shell to misinterpret them as bash variable expansions.
 
 **Bad (causes error):**
 ```yaml
@@ -34,6 +35,44 @@ run: |
 ```
 
 Now the GitHub Actions expression is evaluated BEFORE the bash script runs, and bash only sees regular variables.
+
+### 3. Pass Step Outputs via Environment Variables
+
+The same issue occurred with step outputs in the prompt:
+
+**Bad (causes error):**
+```yaml
+run: |
+  PROMPT="Review guidelines:
+  ${{ steps.rules.outputs.react }}
+  
+  Diff:
+  ${{ steps.diff.outputs.diff }}
+  "
+```
+
+**Good (works correctly):**
+```yaml
+env:
+  REACT_RULES: ${{ steps.rules.outputs.react }}
+  JAVA_RULES: ${{ steps.rules.outputs.java }}
+  SECURITY_RULES: ${{ steps.rules.outputs.security }}
+  PR_DIFF: ${{ steps.diff.outputs.diff }}
+run: |
+  PROMPT="Review guidelines:
+  $REACT_RULES
+  
+  Diff:
+  $PR_DIFF
+  "
+```
+
+**Key principle:** GitHub Actions expressions (`${{ ... }}`) can ONLY be used in:
+- `env:` blocks
+- `with:` blocks  
+- Other YAML fields
+
+They CANNOT be used directly inside `run:` bash scripts. Use `env:` to pass them as environment variables first.
 
 ---
 

@@ -59,21 +59,25 @@ jobs:
         id: review
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          REACT_RULES: ${{ steps.rules.outputs.react }}
+          JAVA_RULES: ${{ steps.rules.outputs.java }}
+          SECURITY_RULES: ${{ steps.rules.outputs.security }}
+          PR_DIFF: ${{ steps.diff.outputs.diff }}
         run: |
           PROMPT="You are an expert code reviewer. Please review the following Pull Request changes according to these guidelines:
 
           ## React Frontend Review Guidelines
-          ${{ steps.rules.outputs.react }}
+          $REACT_RULES
 
           ## Java Backend Review Guidelines
-          ${{ steps.rules.outputs.java }}
+          $JAVA_RULES
 
           ## Security Review Guidelines
-          ${{ steps.rules.outputs.security }}
+          $SECURITY_RULES
 
           ## Pull Request Diff
           \`\`\`diff
-          ${{ steps.diff.outputs.diff }}
+          $PR_DIFF
           \`\`\`
 
           Please provide your review in the following format:
