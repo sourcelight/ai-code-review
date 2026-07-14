@@ -1,0 +1,116 @@
+diff --git a/backend/src/main/java/com/example/starter/controller/UserController.java b/backend/src/main/java/com/example/starter/controller/UserController.java
+new file mode 100644
+index 0000000..1234567
+--- /dev/null
++++ b/backend/src/main/java/com/example/starter/controller/UserController.java
+@@ -0,0 +1,35 @@
++package com.example.starter.controller;
++
++import org.springframework.web.bind.annotation.*;
++
++@RestController
++@RequestMapping("/api/users")
++public class UserController {
++
++    // Security issue: SQL injection vulnerability
++    @GetMapping("/{id}")
++    public String getUserById(@PathVariable String id) {
++        String sql = "SELECT * FROM users WHERE id = " + id;
++        // Execute query directly without parameterization
++        return executeQuery(sql);
++    }
++
++    // Bad practice: Hardcoded credentials
++    @PostMapping("/admin")
++    public String adminLogin(@RequestParam String username, @RequestParam String password) {
++        if ("admin".equals(username) && "admin123".equals(password)) {
++            return "Admin access granted";
++        }
++        return "Access denied";
++    }
++
++    // Missing validation and error handling
++    @DeleteMapping("/{id}")
++    public void deleteUser(@PathVariable String id) {
++        // No authorization check
++        // No validation
++        database.delete(id);
++    }
++
++    private String executeQuery(String sql) { return "result"; }
++}
+
+diff --git a/frontend/src/components/UserProfile.tsx b/frontend/src/components/UserProfile.tsx
+new file mode 100644
+index 0000000..abcdefg
+--- /dev/null
++++ b/frontend/src/components/UserProfile.tsx
+@@ -0,0 +1,40 @@
++import React, { useEffect, useState } from 'react';
++
++// Security issue: Using any type
++const UserProfile = (props: any) => {
++  const [userData, setUserData] = useState(null);
++
++  // Performance issue: Missing dependency array
++  useEffect(() => {
++    fetchUserData();
++  });
++
++  const fetchUserData = async () => {
++    // Security issue: XSS vulnerability - using dangerouslySetInnerHTML
++    const response = await fetch('/api/users/' + props.userId);
++    const data = await response.json();
++    setUserData(data);
++  };
++
++  // Missing error handling
++  // No loading state
++  return (
++    <div>
++      <h1>User Profile</h1>
++      {/* XSS vulnerability */}
++      <div dangerouslySetInnerHTML={{ __html: userData?.bio }} />
++
++      {/* Accessibility issue: missing alt text */}
++      <img src={userData?.avatar} />
++
++      {/* Missing null check */}
++      <p>Email: {userData.email}</p>
++    </div>
++  );
++};
++
++export default UserProfile;
+
+diff --git a/backend/src/main/java/com/example/starter/service/PaymentService.java b/backend/src/main/java/com/example/starter/service/PaymentService.java
+new file mode 100644
+index 0000000..9876543
+--- /dev/null
++++ b/backend/src/main/java/com/example/starter/service/PaymentService.java
+@@ -0,0 +1,25 @@
++package com.example.starter.service;
++
++import org.springframework.stereotype.Service;
++
++@Service
++public class PaymentService {
++
++    // Security issue: Sensitive data in logs
++    public void processPayment(String cardNumber, String cvv, double amount) {
++        System.out.println("Processing payment for card: " + cardNumber + ", CVV: " + cvv);
++
++        // Business logic in wrong layer - should be in service, not here
++        if (amount > 1000) {
++            // Missing proper validation
++            charge(cardNumber, amount);
++        }
++    }
++
++    // Security issue: No encryption for sensitive data
++    private void charge(String cardNumber, double amount) {
++        // Store card number in plain text
++        database.save("card_number", cardNumber);
++        database.save("amount", String.valueOf(amount));
++    }
++}
