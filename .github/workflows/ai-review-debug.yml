@@ -37,9 +37,11 @@ jobs:
           git fetch origin "${{ github.base_ref }}"
           DIFF=$(git diff origin/"${{ github.base_ref }}"...HEAD)
           echo "Diff size: $(echo "$DIFF" | wc -c) characters"
-          echo "diff<<EOF" >> $GITHUB_OUTPUT
-          echo "$DIFF" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          {
+            echo 'diff<<EOF'
+            echo "$DIFF"
+            echo 'EOF'
+          } >> $GITHUB_OUTPUT
 
       - name: Load review rules
         id: rules
