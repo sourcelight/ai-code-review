@@ -63,9 +63,9 @@ jobs:
           DIFF=$(git diff "origin/$BASE_REF"..."origin/$HEAD_REF")
           echo "Diff size: $(echo "$DIFF" | wc -c) characters"
           {
-            echo 'diff<<EOF'
+            echo 'diff<<DELIMITER_DIFF_END'
             echo "$DIFF"
-            echo 'EOF'
+            echo 'DELIMITER_DIFF_END'
           } >> "$GITHUB_OUTPUT"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -85,21 +85,21 @@ jobs:
           echo "Security rules size: $(echo "$SECURITY_RULES" | wc -c)"
 
           {
-            echo 'react<<EOF'
+            echo 'react<<DELIMITER_REACT_END'
             echo "$REACT_RULES"
-            echo 'EOF'
+            echo 'DELIMITER_REACT_END'
           } >> "$GITHUB_OUTPUT"
 
           {
-            echo 'java<<EOF'
+            echo 'java<<DELIMITER_JAVA_END'
             echo "$JAVA_RULES"
-            echo 'EOF'
+            echo 'DELIMITER_JAVA_END'
           } >> "$GITHUB_OUTPUT"
 
           {
-            echo 'security<<EOF'
+            echo 'security<<DELIMITER_SECURITY_END'
             echo "$SECURITY_RULES"
-            echo 'EOF'
+            echo 'DELIMITER_SECURITY_END'
           } >> "$GITHUB_OUTPUT"
 
       - name: Run AI Code Review
@@ -200,9 +200,9 @@ jobs:
           fi
 
           {
-            echo 'review<<EOF'
+            echo 'review<<GITHUB_OUTPUT_DELIMITER_REVIEW_END'
             echo "$REVIEW_TEXT"
-            echo 'EOF'
+            echo 'GITHUB_OUTPUT_DELIMITER_REVIEW_END'
           } >> "$GITHUB_OUTPUT"
 
           echo "Review saved to output successfully"
