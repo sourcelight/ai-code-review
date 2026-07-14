@@ -103,20 +103,25 @@ jobs:
           (List positive aspects)
           "
 
+          # Build JSON payload using jq to properly escape everything
+          PAYLOAD=$(jq -n \
+            --arg model "claude-sonnet-4-6" \
+            --argjson max_tokens 4096 \
+            --arg content "$PROMPT" \
+            '{
+              model: $model,
+              max_tokens: $max_tokens,
+              messages: [{
+                role: "user",
+                content: $content
+              }]
+            }')
+
           RESPONSE=$(curl -s https://api.anthropic.com/v1/messages \
             -H "content-type: application/json" \
             -H "x-api-key: $ANTHROPIC_API_KEY" \
             -H "anthropic-version: 2023-06-01" \
-            -d "{
-              \"model\": \"claude-sonnet-4-6\",
-              \"max_tokens\": 4096,
-              \"messages\": [
-                {
-                  \"role\": \"user\",
-                  \"content\": $(echo "$PROMPT" | jq -Rs .)
-                }
-              ]
-            }")
+            -d "$PAYLOAD")
 
           REVIEW_TEXT=$(echo "$RESPONSE" | jq -r '.content[0].text')
 
