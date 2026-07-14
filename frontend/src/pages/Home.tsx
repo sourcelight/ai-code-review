@@ -31,7 +31,7 @@ const Home = () => {
         <h1>Home</h1>
         {message && <p className="message">{message}</p>}
         {error && <p className="error">{error}</p>}
-        <button onClick={handleLogout}>Logout</button>
+        <button onClick={handleLogout}>Logout modified for test code review</button>
       </div>
     </div>
   );
