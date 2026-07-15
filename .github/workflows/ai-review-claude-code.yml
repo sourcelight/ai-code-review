@@ -37,7 +37,7 @@ jobs:
         run: |
           set +e
           echo "Running minimal prompt with no tools..."
-          OUT=$(claude -p "Reply with the single word: OK" --output-format text 2>smoke-err.log)
+          OUT=$(claude -p "Reply with the single word: OK" --model claude-sonnet-5 --output-format text 2>smoke-err.log)
           CODE=$?
           set -e
           echo "smoke exit code: $CODE"
@@ -95,6 +95,7 @@ jobs:
           ## Positive Observations
           (Highlight good practices in the code)
           " \
+            --model claude-sonnet-5 \
             --allowedTools "Bash,Read,Grep,Glob" \
             --permission-mode bypassPermissions \
             --output-format text \
