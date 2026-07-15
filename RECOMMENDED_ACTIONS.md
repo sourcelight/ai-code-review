@@ -51,12 +51,11 @@ git commit -m "Improve CLAUDE.md for CI/CD context
 - ✅ Adds "What NOT to flag" section
 - ✅ Separates CI/CD vs interactive context
 
-### Action 2: Enable Claude Code Workflow (3 minutes)
+### Action 2: Enable Claude Code Workflow (2 minutes)
 
 ```bash
-# Disable old workflows
+# Disable old workflow
 git mv .github/workflows/ai-review.yml .github/workflows/ai-review.yml.disabled
-git mv .github/workflows/ai-review-smart.yml .github/workflows/ai-review-smart.yml.disabled
 
 # Claude Code workflow already exists at:
 # .github/workflows/ai-review-claude-code.yml
@@ -65,9 +64,9 @@ git mv .github/workflows/ai-review-smart.yml .github/workflows/ai-review-smart.y
 git add .github/workflows/
 git commit -m "Enable Claude Code CLI workflow
 
-- Remove 280+ lines of manual bash parsing
+- Remove manual bash parsing approach
 - Use official Claude Code CLI with auto-loading
-- Same 20-40% cost savings, 95% less code"
+- Same 20-40% cost savings, simpler implementation"
 
 # Push
 git push origin main
@@ -80,10 +79,10 @@ git push origin main
 ### Before
 
 ```
-Workflow: 300+ lines of bash
+Workflow: 179 lines of bash
 CLAUDE.md: No CI/CD guidance, wrong paths
-Rules: Manual pattern matching
-Result: Works but complex
+Rules: Manual loading, no pattern matching
+Result: Works but inefficient
 ```
 
 ### After
@@ -92,7 +91,7 @@ Result: Works but complex
 Workflow: 20 lines (Claude Code CLI)
 CLAUDE.md: Clear CI/CD section, correct paths
 Rules: Auto-loaded by Claude Code
-Result: Same functionality, 95% less code
+Result: Same functionality, 90% less code
 ```
 
 ### Improvements
@@ -198,7 +197,6 @@ git push origin main
 |------|--------|--------|
 | `CLAUDE.md` | Add CI/CD section, fix paths | Better reviews |
 | `.github/workflows/ai-review.yml` | Disable (rename .disabled) | Remove old approach |
-| `.github/workflows/ai-review-smart.yml` | Disable (rename .disabled) | Remove complex bash |
 | `.github/workflows/ai-review-claude-code.yml` | Already exists, now active | Official tooling |
 | `.claude/rules/*.md` | Already have frontmatter | Auto-loaded |
 

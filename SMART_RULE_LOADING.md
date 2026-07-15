@@ -1,5 +1,13 @@
 # Smart Rule Loading - Optimization Guide
 
+> **⚠️ DEPRECATED:** This document describes a manual bash implementation that has been replaced by **Claude Code CLI**. 
+> 
+> **See instead:** `CLAUDE_CODE_CI_APPROACH.md` for the current recommended approach using Claude Code's built-in smart loading.
+>
+> This file is kept for historical reference only.
+
+---
+
 ## Problem with Current Approach
 
 **Current workflow (`ai-review.yml`):**

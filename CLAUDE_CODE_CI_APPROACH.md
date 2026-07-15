@@ -73,7 +73,6 @@ Repository:
 ├── .github/
 │   └── workflows/
 │       ├── ai-review.yml              ← OLD: Manual bash (deprecated)
-│       ├── ai-review-smart.yml        ← OLD: Manual bash (deprecated)
 │       └── ai-review-claude-code.yml  ← NEW: Claude Code CLI ✅
 │
 ├── CLAUDE.md                           ← Auto-loaded by Claude Code
@@ -259,7 +258,6 @@ ls .claude/rules/
 ```bash
 # Rename to disable
 mv .github/workflows/ai-review.yml .github/workflows/ai-review.yml.disabled
-mv .github/workflows/ai-review-smart.yml .github/workflows/ai-review-smart.yml.disabled
 ```
 
 **Step 3: Enable Claude Code workflow**

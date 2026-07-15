@@ -1,6 +1,6 @@
 # AI Review Workflow Comparison
 
-## Three Approaches
+## Two Approaches
 
 ### 1. ❌ Old: Manual Bash (Deprecated)
 
@@ -20,33 +20,7 @@
 
 ---
 
-### 2. ⚠️ Improved: Smart Bash (Deprecated)
-
-**File:** `.github/workflows/ai-review-smart.yml`
-
-```yaml
-# 300+ lines of bash
-# Manual frontmatter parsing with awk/sed
-# Custom pattern matching with regex
-# Conditional rule loading
-```
-
-**Benefits:**
-- ✅ Smart rule loading (20-40% cost savings)
-- ✅ Pattern matching based on changed files
-
-**Issues:**
-- ❌ Complex bash scripting (300+ lines)
-- ❌ Manual YAML parsing (fragile)
-- ❌ Reinvents what Claude Code already does
-- ❌ Hard to maintain
-- ❌ Doesn't leverage Claude Code ecosystem
-
-**Status:** ⚠️ Works but unnecessarily complex
-
----
-
-### 3. ✅ Recommended: Claude Code CLI
+### 2. ✅ Recommended: Claude Code CLI
 
 **File:** `.github/workflows/ai-review-claude-code.yml`
 
@@ -76,18 +50,18 @@
 
 ## Feature Comparison
 
-| Feature | Old Bash | Smart Bash | Claude Code CLI |
-|---------|----------|------------|-----------------|
-| **Code complexity** | 200 lines | 300 lines | 20 lines |
-| **Token optimization** | ❌ None | ✅ 20-40% | ✅ 20-40% |
-| **Frontmatter parsing** | ❌ N/A | Manual awk/sed | ✅ Built-in |
-| **Pattern matching** | ❌ N/A | Custom regex | ✅ Built-in |
-| **CLAUDE.md loading** | Manual | Manual | ✅ Automatic |
-| **Memory files** | ❌ No | ❌ No | ✅ Yes |
-| **Maintainability** | Hard | Very Hard | Easy |
-| **Updates** | Manual | Manual | `npm update` |
-| **Error handling** | Custom | Custom | ✅ Built-in |
-| **Official support** | ❌ No | ❌ No | ✅ Yes |
+| Feature | Old Bash | Claude Code CLI |
+|---------|----------|-----------------|
+| **Code complexity** | 200 lines | 20 lines |
+| **Token optimization** | ❌ None | ✅ 20-40% |
+| **Frontmatter parsing** | ❌ N/A | ✅ Built-in |
+| **Pattern matching** | ❌ N/A | ✅ Built-in |
+| **CLAUDE.md loading** | Manual | ✅ Automatic |
+| **Memory files** | ❌ No | ✅ Yes |
+| **Maintainability** | Hard | Easy |
+| **Updates** | Manual | `npm update` |
+| **Error handling** | Custom | ✅ Built-in |
+| **Official support** | ❌ No | ✅ Yes |
 
 ---
 
@@ -147,23 +121,6 @@ git push origin main
 **Migration effort:** 5 minutes  
 **Benefit:** 95% less code, same optimization
 
-### From Smart Bash → Claude Code
-
-```bash
-# Step 1: Rules already have frontmatter ✓
-# Step 2: Disable smart bash workflow
-mv .github/workflows/ai-review-smart.yml .github/workflows/ai-review-smart.yml.disabled
-
-# Step 3: Enable Claude Code workflow
-git add .github/workflows/ai-review-claude-code.yml
-git commit -m "Simplify to Claude Code CLI (remove 280 lines of bash)"
-git push origin main
-```
-
-**Migration effort:** 2 minutes  
-**Benefit:** Remove 280 lines of complex bash, same functionality
-
----
 
 ## Code Size Comparison
 
@@ -178,22 +135,6 @@ git push origin main
 ```
 
 **Total:** 179 lines
-
-### Smart Bash Workflow
-
-```yaml
-# .github/workflows/ai-review-smart.yml
-# 309 lines total
-- Everything from old workflow
-- +130 lines for frontmatter parsing
-  - awk extraction
-  - sed pattern conversion
-  - Custom glob-to-regex
-  - Pattern matching loops
-  - Conditional rule loading
-```
-
-**Total:** 309 lines
 
 ### Claude Code Workflow
 
@@ -211,14 +152,13 @@ git push origin main
 
 ## Maintenance Comparison
 
-### Bash Workflows
+### Old Bash Workflow
 
 **Adding a new rule:**
-1. Create `.github/ai-review/new-rule.md` with frontmatter
-2. ⚠️ Might need to update bash parsing logic
-3. ⚠️ Test pattern matching
-4. ⚠️ Debug if patterns don't match
-5. ⚠️ Verify heredoc delimiters don't collide
+1. Create rule file with manual bash integration
+2. ⚠️ Update workflow to load the new rule
+3. ⚠️ Test parsing logic
+4. ⚠️ Debug if loading fails
 
 **Time:** 30 minutes
 
@@ -279,13 +219,13 @@ git push origin main
 
 ## Summary
 
-| Metric | Old | Smart Bash | Claude Code |
-|--------|-----|------------|-------------|
-| Lines of code | 179 | 309 | 58 (20) |
-| Cost savings | 0% | 20-40% | 20-40% |
-| Complexity | Medium | High | Low |
-| Maintainability | Hard | Very Hard | Easy |
-| Official support | No | No | Yes |
-| **Recommendation** | ❌ | ❌ | ✅ |
+| Metric | Old Bash | Claude Code CLI |
+|--------|----------|-----------------|
+| Lines of code | 179 | 58 (20 active) |
+| Cost savings | 0% | 20-40% |
+| Complexity | Medium | Low |
+| Maintainability | Hard | Easy |
+| Official support | No | Yes |
+| **Recommendation** | ❌ | ✅ |
 
-**The clear winner:** Claude Code CLI approach - same optimization, 95% less code, official support.
+**The clear winner:** Claude Code CLI approach - optimized, simple, officially supported.

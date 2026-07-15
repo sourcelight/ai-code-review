@@ -4,16 +4,15 @@
 
 ✅ Rules already in `.claude/rules/*.md` with frontmatter  
 ✅ Claude Code workflow already created  
-⚠️ Old workflows still active  
+⚠️ Old workflow still active (ai-review.yml)  
 
 ## 2-Minute Migration
 
-### Step 1: Disable Old Workflows
+### Step 1: Disable Old Workflow
 
 ```bash
 # Rename to disable (keeps as backup)
 git mv .github/workflows/ai-review.yml .github/workflows/ai-review.yml.disabled
-git mv .github/workflows/ai-review-smart.yml .github/workflows/ai-review-smart.yml.disabled
 ```
 
 ### Step 2: Verify Rules Location

@@ -17,11 +17,11 @@ SECURITY_RULES=$(cat security-review.md) # 4,500 tokens
 
 **Problem:** Frontend-only PR still pays for Java rules it doesn't need.
 
-## After (Smart Loading)
+## After (Claude Code CLI)
 
 ```yaml
-# .github/workflows/ai-review-smart.yml
-# ONLY loads rules matching changed files
+# .github/workflows/ai-review-claude-code.yml
+# Claude Code automatically loads rules matching changed files
 
 Frontend PR:
   ✓ react-review.md (matches frontend/**/*.tsx)
@@ -75,34 +75,34 @@ Prompt:
 
 ## Files Created
 
-✅ **`.github/ai-review/react-review.md`** - Updated with frontmatter  
-✅ **`.github/ai-review/java-review.md`** - Updated with frontmatter  
-✅ **`.github/ai-review/security-review.md`** - Updated with `always_load: true`  
-✅ **`.github/workflows/ai-review-smart.yml`** - New smart workflow  
-✅ **`SMART_RULE_LOADING.md`** - Complete documentation  
+✅ **`.claude/rules/react-review.md`** - Rules with frontmatter patterns  
+✅ **`.claude/rules/java-review.md`** - Rules with frontmatter patterns  
+✅ **`.claude/rules/security-review.md`** - Rules with `always_load: true`  
+✅ **`.github/workflows/ai-review-claude-code.yml`** - Claude Code CLI workflow  
+✅ **`CLAUDE_CODE_CI_APPROACH.md`** - Complete documentation  
 
 ## Quick Start
 
 ### Option 1: Test Side-by-Side
 
 Keep both workflows active temporarily:
-- `ai-review.yml` - Current (baseline)
-- `ai-review-smart.yml` - Smart (test)
+- `ai-review.yml` - Old manual approach (baseline)
+- `ai-review-claude-code.yml` - Claude Code CLI (recommended)
 
 Compare results for a few PRs, then disable the old one.
 
 ### Option 2: Direct Migration
 
 ```bash
-# Backup old workflow
-mv .github/workflows/ai-review.yml .github/workflows/ai-review-old.yml
+# Disable old workflow
+mv .github/workflows/ai-review.yml .github/workflows/ai-review.yml.disabled
 
-# Activate smart workflow
-mv .github/workflows/ai-review-smart.yml .github/workflows/ai-review.yml
+# Claude Code workflow already active at:
+# .github/workflows/ai-review-claude-code.yml
 
 # Commit
 git add .github/
-git commit -m "Enable smart rule loading (20% cost reduction)"
+git commit -m "Migrate to Claude Code CLI (20% cost reduction, 95% less code)"
 git push origin main
 ```
 
@@ -110,13 +110,16 @@ git push origin main
 
 Check workflow logs for:
 ```
-Analyzing which rules to load based on changed files...
-✓ Loading react-review (matched: frontend/src/Login.tsx ~ frontend/**/*.tsx)
-✓ Loading security-review (always_load: true)
-✗ Skipping java-review (no matching files)
-
-Prompt size: 11234 characters  ← Should be smaller than before
-Rules loaded: react-review security-review
+Install Claude Code
+  → curl -fsSL https://claude.ai/install.sh | bash
+Run Claude Code review
+  → Loading CLAUDE.md
+  → Scanning .claude/rules/*.md
+  → Loading react-review.md (matched frontend/**/*.tsx)
+  → Loading security-review.md (always_load: true)
+  → Skipping java-review.md (no backend files)
+  → Building optimized context (11,500 tokens)
+  → Review generated successfully
 ```
 
 ## Cost Savings
