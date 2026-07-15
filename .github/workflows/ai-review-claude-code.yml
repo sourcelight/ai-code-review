@@ -26,7 +26,10 @@ jobs:
 
       - name: Install Claude Code
         run: |
-          npm install -g @anthropic-ai/claude-code
+          curl -fsSL https://claude.ai/install.sh | bash
+
+      - name: Verify Claude Code
+        run: |
           claude --version
 
       - name: Run Claude Code review
