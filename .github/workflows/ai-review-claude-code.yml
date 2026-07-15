@@ -42,6 +42,10 @@ jobs:
           # - Only include rules matching changed files
           # - Apply smart context management
 
+          # Make sure the base branch is available locally so Claude can diff it
+          git fetch origin "${{ github.base_ref }}" --depth=1 || true
+
+          set +e   # do not let a non-zero claude exit kill the step before we log it
           claude -p "Review this Pull Request.
 
           Requirements:
@@ -73,7 +77,20 @@ jobs:
 
           ## Positive Observations
           (Highlight good practices in the code)
-          " > review.md
+          " \
+            --allowedTools "Bash,Read,Grep,Glob" \
+            --permission-mode bypassPermissions \
+            --output-format text \
+            > review.md 2> claude-error.log
+          CLAUDE_EXIT=$?
+          set -e
+
+          echo "claude exit code: $CLAUDE_EXIT"
+          if [ "$CLAUDE_EXIT" -ne 0 ] || [ ! -s review.md ]; then
+            echo "::error::Claude Code review failed (exit $CLAUDE_EXIT). stderr below:"
+            cat claude-error.log
+            exit 1
+          fi
 
           # Capture the review output
           {
