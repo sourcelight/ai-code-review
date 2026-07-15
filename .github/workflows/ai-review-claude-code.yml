@@ -23,12 +23,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
       - name: Install Claude Code
         run: |
           curl -fsSL https://claude.ai/install.sh | bash
-        env:
-          ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
 
       - name: Verify Claude Code
         run: |
