@@ -1,0 +1,301 @@
+name: AI Code Review (Smart Loading)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  ai-review:
+    name: AI Code Review with Smart Rule Loading
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get PR diff and changed files
+        id: diff
+        run: |
+          BASE_REF="${{ github.base_ref }}"
+          echo "Base branch: $BASE_REF"
+          git fetch origin "$BASE_REF"
+
+          # Get the diff
+          DIFF=$(git diff "origin/$BASE_REF"...HEAD)
+          echo "diff<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$DIFF" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+          # Get list of changed files
+          CHANGED_FILES=$(git diff --name-only "origin/$BASE_REF"...HEAD)
+          echo "changed_files<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$CHANGED_FILES" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+
+      - name: Smart load review rules
+        id: rules
+        env:
+          CHANGED_FILES: ${{ steps.diff.outputs.changed_files }}
+        run: |
+          # Function to extract frontmatter from markdown
+          extract_frontmatter() {
+            local file=$1
+            awk '/^---$/{flag=!flag; next} flag' "$file"
+          }
+
+          # Function to check if file matches patterns
+          matches_pattern() {
+            local file=$1
+            local pattern=$2
+
+            # Convert glob pattern to regex
+            # Simple conversion: ** -> .*, * -> [^/]*
+            pattern=$(echo "$pattern" | sed 's|\*\*|DOUBLESTAR|g' | sed 's|\*|[^/]*|g' | sed 's|DOUBLESTAR|.*|g')
+
+            # Check if file matches
+            if echo "$file" | grep -qE "^${pattern}$"; then
+              return 0
+            fi
+            return 1
+          }
+
+          # Check which rule files should be loaded
+          RULES_DIR=".github/ai-review"
+          LOADED_RULES=""
+
+          echo "Analyzing which rules to load based on changed files..."
+
+          for rule_file in "$RULES_DIR"/*.md; do
+            rule_name=$(basename "$rule_file" .md)
+
+            # Extract frontmatter
+            frontmatter=$(extract_frontmatter "$rule_file")
+
+            # Check if always_load is true
+            if echo "$frontmatter" | grep -q "always_load: *true"; then
+              echo "✓ Loading $rule_name (always_load: true)"
+              LOADED_RULES="$LOADED_RULES $rule_name"
+              continue
+            fi
+
+            # Extract patterns from frontmatter
+            patterns=$(echo "$frontmatter" | awk '/^patterns:/,/^[a-z_]+:/ {if ($0 !~ /^patterns:/ && $0 !~ /^[a-z_]+:/) print}' | sed 's/^[[:space:]]*-[[:space:]]*//; s/"//g')
+
+            if [ -z "$patterns" ]; then
+              echo "⚠ No patterns found for $rule_name, skipping"
+              continue
+            fi
+
+            # Check if any changed file matches patterns
+            should_load=false
+            while IFS= read -r changed_file; do
+              [ -z "$changed_file" ] && continue
+
+              while IFS= read -r pattern; do
+                [ -z "$pattern" ] && continue
+
+                if matches_pattern "$changed_file" "$pattern"; then
+                  echo "✓ Loading $rule_name (matched: $changed_file ~ $pattern)"
+                  should_load=true
+                  break 2
+                fi
+              done <<< "$patterns"
+            done <<< "$CHANGED_FILES"
+
+            if [ "$should_load" = true ]; then
+              LOADED_RULES="$LOADED_RULES $rule_name"
+            else
+              echo "✗ Skipping $rule_name (no matching files)"
+            fi
+          done
+
+          echo ""
+          echo "Rules to load: $LOADED_RULES"
+          echo ""
+
+          # Load the content of selected rules (without frontmatter)
+          for rule_name in $LOADED_RULES; do
+            rule_file="$RULES_DIR/${rule_name}.md"
+
+            # Extract content without frontmatter
+            CONTENT=$(awk '/^---$/{if(++count==2){flag=1;next}}flag' "$rule_file")
+
+            # Store in outputs with uppercase variable name
+            VAR_NAME=$(echo "$rule_name" | tr '[:lower:]' '[:upper:]' | tr '-' '_')
+
+            {
+              echo "${VAR_NAME}<<EOF_${VAR_NAME}"
+              echo "$CONTENT"
+              echo "EOF_${VAR_NAME}"
+            } >> "$GITHUB_OUTPUT"
+
+            echo "Loaded ${VAR_NAME} ($(echo "$CONTENT" | wc -c) bytes)"
+          done
+
+          # Store the list of loaded rules
+          echo "loaded_rules=$LOADED_RULES" >> "$GITHUB_OUTPUT"
+
+      - name: Run AI Code Review
+        id: review
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          REACT_RULES: ${{ steps.rules.outputs.REACT_REVIEW }}
+          JAVA_RULES: ${{ steps.rules.outputs.JAVA_REVIEW }}
+          SECURITY_RULES: ${{ steps.rules.outputs.SECURITY_REVIEW }}
+          PR_DIFF: ${{ steps.diff.outputs.diff }}
+          LOADED_RULES: ${{ steps.rules.outputs.loaded_rules }}
+        run: |
+          # Check API key is set
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "ERROR: ANTHROPIC_API_KEY is not set"
+            exit 1
+          fi
+
+          # Build prompt dynamically based on loaded rules
+          PROMPT="You are an expert code reviewer. Please review the following Pull Request changes according to these guidelines:
+          "
+
+          # Add React rules if loaded
+          if [ ! -z "$REACT_RULES" ]; then
+            PROMPT="$PROMPT
+
+## React Frontend Review Guidelines
+$REACT_RULES
+"
+          fi
+
+          # Add Java rules if loaded
+          if [ ! -z "$JAVA_RULES" ]; then
+            PROMPT="$PROMPT
+
+## Java Backend Review Guidelines
+$JAVA_RULES
+"
+          fi
+
+          # Add Security rules if loaded
+          if [ ! -z "$SECURITY_RULES" ]; then
+            PROMPT="$PROMPT
+
+## Security Review Guidelines
+$SECURITY_RULES
+"
+          fi
+
+          # Add the diff
+          PROMPT="$PROMPT
+
+## Pull Request Diff
+\`\`\`diff
+$PR_DIFF
+\`\`\`
+
+Please provide your review in the following format:
+
+# Code Review Summary
+
+## Overall Assessment
+(Brief summary)
+
+## Critical Issues
+(List critical issues or 'None found')
+
+## Medium Issues
+(List medium issues or 'None found')
+
+## Minor Issues
+(List minor issues or 'None found')
+
+## Suggested Improvements
+(List suggestions)
+
+## Positive Observations
+(List positive aspects)
+"
+
+          echo "Prompt size: $(echo "$PROMPT" | wc -c) characters"
+          echo "Rules loaded: $LOADED_RULES"
+
+          # Build JSON payload using jq to properly escape everything
+          PAYLOAD=$(jq -n \
+            --arg model "claude-sonnet-4-6" \
+            --argjson max_tokens 4096 \
+            --arg content "$PROMPT" \
+            '{
+              model: $model,
+              max_tokens: $max_tokens,
+              messages: [{
+                role: "user",
+                content: $content
+              }]
+            }')
+
+          RESPONSE=$(curl -s https://api.anthropic.com/v1/messages \
+            -H "content-type: application/json" \
+            -H "x-api-key: $ANTHROPIC_API_KEY" \
+            -H "anthropic-version: 2023-06-01" \
+            -d "$PAYLOAD")
+
+          # Check for API errors
+          ERROR_TYPE=$(echo "$RESPONSE" | jq -r '.error.type // empty')
+          if [ ! -z "$ERROR_TYPE" ]; then
+            echo "ERROR: API returned error type: $ERROR_TYPE"
+            echo "Error message: $(echo "$RESPONSE" | jq -r '.error.message')"
+            echo "Full response:"
+            echo "$RESPONSE"
+            exit 1
+          fi
+
+          REVIEW_TEXT=$(echo "$RESPONSE" | jq -r '.content[0].text')
+
+          # Check if review is empty
+          if [ -z "$REVIEW_TEXT" ] || [ "$REVIEW_TEXT" = "null" ]; then
+            echo "ERROR: Review text is empty or null!"
+            echo "Response was:"
+            echo "$RESPONSE"
+            exit 1
+          fi
+
+          echo "Review extracted successfully (${#REVIEW_TEXT} characters)"
+
+          {
+            echo 'review<<EOF'
+            echo "$REVIEW_TEXT"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Post review comment
+        env:
+          REVIEW_CONTENT: ${{ steps.review.outputs.review }}
+          LOADED_RULES: ${{ steps.rules.outputs.loaded_rules }}
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const review = process.env.REVIEW_CONTENT;
+            const loadedRules = process.env.LOADED_RULES.trim();
+
+            if (!review || review.trim() === '' || review === 'null') {
+              core.setFailed('Review content is empty or null!');
+              return;
+            }
+
+            const rulesNote = loadedRules
+              ? `\n\n---\n*Rules applied: ${loadedRules}*`
+              : '';
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `## 🤖 AI Code Review\n\n${review}${rulesNote}\n\n---\n*Powered by Claude (Anthropic)*`
+            });

@@ -1,0 +1,102 @@
+name: AI Code Review (Claude Code)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  ai-review:
+    name: AI Code Review with Claude Code
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Claude Code
+        run: |
+          npm install -g @anthropic-ai/claude-code
+          claude --version
+
+      - name: Run Claude Code review
+        id: review
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          # Claude Code will automatically:
+          # - Load CLAUDE.md
+          # - Load .claude/rules/*.md with frontmatter pattern matching
+          # - Only include rules matching changed files
+          # - Apply smart context management
+
+          claude -p "Review this Pull Request.
+
+          Requirements:
+          - Inspect the git diff against the target branch (${{ github.base_ref }})
+          - Review changed files only
+          - Follow CLAUDE.md instructions
+          - Apply .claude/rules/*.md guidelines (smart pattern matching)
+          - Focus on correctness, security, maintainability, and bugs
+          - Be concise and actionable
+
+          Return the review using this exact format:
+
+          # Code Review Summary
+
+          ## Overall Assessment
+          (Brief summary of the changes)
+
+          ## Critical Issues
+          (List critical issues with file:line references, or 'None found')
+
+          ## Medium Issues
+          (List medium issues with file:line references, or 'None found')
+
+          ## Minor Issues
+          (List minor issues or style suggestions, or 'None found')
+
+          ## Suggested Improvements
+          (List specific, actionable improvements)
+
+          ## Positive Observations
+          (Highlight good practices in the code)
+          " > review.md
+
+          # Capture the review output
+          {
+            echo 'review<<EOF'
+            cat review.md
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Post review comment
+        env:
+          REVIEW_CONTENT: ${{ steps.review.outputs.review }}
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const review = process.env.REVIEW_CONTENT;
+
+            if (!review || review.trim() === '' || review === 'null') {
+              core.setFailed('Review content is empty or null!');
+              return;
+            }
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `## 🤖 AI Code Review\n\n${review}\n\n---\n*Powered by Claude Code with smart rule loading*`
+            });
