@@ -295,12 +295,12 @@ logs if the review step itself failed.
 ## Structured Output Schema
 
 The contract between the reviewer and the workflow is **`review-schema.json`** (JSON Schema
-draft 2020-12). It is passed to `claude` via **`--json-schema "$(cat review-schema.json)"`**, which
+draft-07). It is passed to `claude` via **`--json-schema "$(cat review-schema.json)"`**, which
 **natively constrains** the model's answer (Anthropic structured outputs) — the conformant object
 comes back in the envelope's `.structured_output` field.
 
 > **Subset caveat:** structured outputs honor a *subset* of JSON Schema. Basic shape keywords
-> (`type`, `enum`, `required`, `properties`, `additionalProperties`, `$defs`/`$ref`, arrays, nested
+> (`type`, `enum`, `required`, `properties`, `additionalProperties`, `definitions`/`$ref`, arrays, nested
 > objects) are reliably enforced. Advanced keywords — `allOf`/`if`/`then`, and sometimes `pattern` —
 > may be ignored or rejected. For that reason this schema avoids conditional composition, and the
 > `pattern`/`minLength` constraints on `id`, `cwe`, etc. are best treated as *documentation* rather
@@ -594,10 +594,17 @@ mid-object, or the schema was rejected as unsupported.
 
 ### Problem 4: `Error: --json-schema is not a valid JSON Schema`
 
-**Cause:** the schema passed to `--json-schema` is malformed or uses a construct the CLI rejects.
+**Cause:** the CLI validates the schema with **ajv (draft-07 by default)** before use. Two common
+triggers:
+- A `"$schema"` pointing at a meta-schema ajv doesn't have registered — e.g.
+  `no schema with key or ref "https://json-schema.org/draft/2020-12/schema"`. **Omit the `$schema`
+  and `$id` keys** so ajv uses its default (draft-07).
+- Using 2019+/2020 keywords (`$defs`) under the draft-07 validator — prefer the draft-07 spelling
+  **`definitions`** with `$ref: "#/definitions/..."`.
 
-**Solution:** validate the file locally (`node -e "JSON.parse(require('fs').readFileSync('review-schema.json','utf8'))"`),
-and remove keywords outside the supported subset. Keep the object shape simple.
+**Solution:** this repo's `review-schema.json` already omits `$schema`/`$id` and uses `definitions`.
+Validate locally with `node -e "JSON.parse(require('fs').readFileSync('review-schema.json','utf8'))"`
+and keep the shape within the supported subset.
 
 ### Problem 5: Semantic check fails (`counts` mismatch / `end_line < line`)
 

@@ -1,6 +1,4 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/sourcelight/ai-code-review/review-schema.json",
   "title": "AI Code Review Result",
   "description": "Structured output produced by the Claude Code AI reviewer for a single Pull Request. Consumed by the GitHub Actions workflow to render a summary comment, post inline review comments, and gate the PR on severity.",
   "type": "object",
@@ -69,7 +67,7 @@
     "findings": {
       "type": "array",
       "description": "All issues found, most severe first. Empty array means no issues.",
-      "items": { "$ref": "#/$defs/finding" }
+      "items": { "$ref": "#/definitions/finding" }
     },
 
     "positive_observations": {
@@ -79,7 +77,7 @@
     }
   },
 
-  "$defs": {
+  "definitions": {
     "finding": {
       "type": "object",
       "additionalProperties": false,
