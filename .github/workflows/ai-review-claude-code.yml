@@ -23,6 +23,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+
       - name: Install Claude Code
         run: |
           curl -fsSL https://claude.ai/install.sh | bash
@@ -48,102 +49,181 @@ jobs:
             exit 1
           fi
 
-      - name: Run Claude Code review
+      - name: Run Claude Code review (structured JSON)
         id: review
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          BASE_REF: ${{ github.base_ref }}
         run: |
           # Claude Code will automatically:
           # - Load CLAUDE.md
-          # - Load .claude/rules/*.md with frontmatter pattern matching
-          # - Only include rules matching changed files
-          # - Apply smart context management
+          # - Load .claude/rules/*.md (smart pattern matching on changed files)
+          # The --json-schema flag constrains Claude's final answer to review-schema.json
+          # natively (Anthropic structured outputs); the validated object comes back in the
+          # envelope's `.structured_output` field, so no manual parsing/validation is needed.
 
           # Make sure the base branch is available locally so Claude can diff it
-          git fetch origin "${{ github.base_ref }}" --depth=1 || true
+          git fetch origin "$BASE_REF" --depth=1 || true
 
-          set +e   # do not let a non-zero claude exit kill the step before we log it
+          set +e   # capture claude's exit code instead of letting bash -e abort
           claude -p "Review this Pull Request.
 
-          Requirements:
-          - Inspect the git diff against the target branch (${{ github.base_ref }})
-          - Review changed files only
-          - Follow CLAUDE.md instructions
-          - Apply .claude/rules/*.md guidelines (smart pattern matching)
-          - Focus on correctness, security, maintainability, and bugs
-          - Be concise and actionable
-
-          Return the review using this exact format:
-
-          # Code Review Summary
-
-          ## Overall Assessment
-          (Brief summary of the changes)
-
-          ## Critical Issues
-          (List critical issues with file:line references, or 'None found')
-
-          ## Medium Issues
-          (List medium issues with file:line references, or 'None found')
-
-          ## Minor Issues
-          (List minor issues or style suggestions, or 'None found')
-
-          ## Suggested Improvements
-          (List specific, actionable improvements)
-
-          ## Positive Observations
-          (Highlight good practices in the code)
+          - Inspect the git diff against the target branch (origin/$BASE_REF).
+          - Review changed files only; read files as needed for full context.
+          - Follow CLAUDE.md and apply .claude/rules/*.md guidelines (smart pattern matching).
+          - Focus on correctness, security, maintainability, and bugs.
+          - For every finding, set 'file' to the repo-relative path and 'line' to the 1-indexed
+            line number in the NEW version of the file, so it can be posted as an inline comment.
+          - Set summary.counts to the exact number of findings at each severity.
+          - Set summary.recommendation to 'request_changes' if there is any critical finding,
+            'comment' if there are only medium/minor findings, otherwise 'approve'.
           " \
             --model claude-sonnet-5 \
             --allowedTools "Bash,Read,Grep,Glob" \
             --permission-mode bypassPermissions \
-            --output-format text \
-            > review.md 2> claude-error.log
+            --output-format json \
+            --json-schema "$(cat review-schema.json)" \
+            > out.json 2> claude-error.log
           CLAUDE_EXIT=$?
           set -e
 
           echo "claude exit code: $CLAUDE_EXIT"
-          if [ "$CLAUDE_EXIT" -ne 0 ] || [ ! -s review.md ]; then
-            echo "::group::claude stderr"
-            cat claude-error.log || true
-            echo "::endgroup::"
-            echo "::group::claude stdout (review.md)"
-            cat review.md || true
-            echo "::endgroup::"
-            echo "::group::claude version / diagnostics"
+
+          # --- Pull the schema-constrained object out of the envelope ---
+          jq '.structured_output // empty' out.json > review.json 2>/dev/null || true
+
+          if [ "$CLAUDE_EXIT" -ne 0 ] || [ ! -s review.json ]; then
+            echo "::group::claude stderr";     cat claude-error.log || true; echo "::endgroup::"
+            echo "::group::claude raw output"; cat out.json || true;        echo "::endgroup::"
+            echo "::group::diagnostics"
             which claude || true
             claude --version || true
             echo "ANTHROPIC_API_KEY length: ${#ANTHROPIC_API_KEY}"
             echo "::endgroup::"
-            echo "::error::Claude Code review failed (exit $CLAUDE_EXIT)."
+            echo "::error::Claude Code run failed or returned no structured_output (exit $CLAUDE_EXIT)."
             exit 1
           fi
 
-          # Capture the review output
-          {
-            echo 'review<<EOF'
-            cat review.md
-            echo 'EOF'
-          } >> "$GITHUB_OUTPUT"
+          echo "::group::review.json"; cat review.json; echo "::endgroup::"
 
-      - name: Post review comment
-        env:
-          REVIEW_CONTENT: ${{ steps.review.outputs.review }}
+          # --- Cross-field checks that NO JSON Schema can express ---
+          node -e '
+            const r = require("./review.json");
+            const actual = { critical: 0, medium: 0, minor: 0 };
+            for (const f of r.findings) actual[f.severity]++;
+            const c = r.summary.counts;
+            for (const k of Object.keys(actual)) {
+              if (actual[k] !== c[k]) {
+                console.error(`summary.counts.${k}=${c[k]} but found ${actual[k]} findings`);
+                process.exit(1);
+              }
+            }
+            for (const f of r.findings) {
+              if (f.end_line != null && f.line != null && f.end_line < f.line) {
+                console.error(`finding ${f.id}: end_line < line`);
+                process.exit(1);
+              }
+            }
+            console.log("Semantic checks passed.");
+          '
+
+      - name: Post review (summary + inline comments) and gate PR
+        if: always() && steps.review.outcome == 'success'
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const review = process.env.REVIEW_CONTENT;
+            const fs = require('fs');
+            const review = JSON.parse(fs.readFileSync('review.json', 'utf8'));
 
-            if (!review || review.trim() === '' || review === 'null') {
-              core.setFailed('Review content is empty or null!');
-              return;
+            const { owner, repo } = context.repo;
+            const pull_number = context.issue.number;
+            const commit_id = context.payload.pull_request.head.sha;
+
+            const emoji = { critical: '🔴', medium: '🟠', minor: '🟡' };
+            const { critical = 0, medium = 0, minor = 0 } = review.summary.counts;
+
+            // ---------- Build the summary comment body ----------
+            let body = `## 🤖 AI Code Review\n\n${review.overall_assessment}\n\n`;
+            body += `**Verdict:** \`${review.summary.recommendation}\` · `;
+            body += `🔴 ${critical} critical · 🟠 ${medium} medium · 🟡 ${minor} minor\n\n`;
+
+            if (review.findings.length) {
+              body += `### Findings\n\n| Sev | ID | Category | Location | Issue |\n|---|---|---|---|---|\n`;
+              for (const f of review.findings) {
+                const loc = f.line ? `${f.file}:${f.line}` : f.file;
+                body += `| ${emoji[f.severity] || ''} ${f.severity} | ${f.id} | ${f.category} | \`${loc}\` | ${f.title} |\n`;
+              }
+              body += `\n`;
+            } else {
+              body += `_No issues found._\n\n`;
             }
 
+            if (review.positive_observations && review.positive_observations.length) {
+              body += `### ✅ Positive Observations\n`;
+              for (const p of review.positive_observations) body += `- ${p}\n`;
+              body += `\n`;
+            }
+            body += `\n---\n*Powered by Claude Code · structured output (review-schema.json v${review.schema_version})*`;
+
+            // ---------- Build inline comments from findings that have a line ----------
+            const inline = [];
+            for (const f of review.findings) {
+              if (!f.line) continue;
+              let c = `${emoji[f.severity] || ''} **[${f.severity}] ${f.title}** (\`${f.id}\`)\n\n`;
+              c += `${f.description}\n\n**Why:** ${f.rationale}\n\n**Suggestion:** ${f.suggestion}\n`;
+              if (f.rule_source) c += `\n_Rule: ${f.rule_source}_`;
+              if (f.cwe) c += ` · _${f.cwe}_`;
+              if (f.suggested_code) c += `\n\n**Suggested fix:**\n\`\`\`\n${f.suggested_code}\n\`\`\``;
+              const comment = { path: f.file, side: 'RIGHT', body: c };
+              if (f.end_line && f.end_line !== f.line) {
+                comment.start_line = f.line;
+                comment.start_side = 'RIGHT';
+                comment.line = f.end_line;
+              } else {
+                comment.line = f.line;
+              }
+              inline.push(comment);
+            }
+
+            // ---------- Post: a single review with inline comments, fallback to issue comment ----------
+            // Gate via the check status (setFailed), not via a formal REQUEST_CHANGES review,
+            // to avoid the bot blocking merges in a way that needs manual dismissal.
+            try {
+              await github.rest.pulls.createReview({
+                owner, repo, pull_number, commit_id,
+                event: 'COMMENT',
+                body,
+                comments: inline,
+              });
+              console.log(`Posted review with ${inline.length} inline comment(s).`);
+            } catch (e) {
+              console.log(`createReview failed (${e.status}): ${e.message}. Falling back to a plain issue comment.`);
+              let fb = body + `\n\n### Detailed Findings\n`;
+              for (const f of review.findings) {
+                const loc = f.line ? `${f.file}:${f.line}` : f.file;
+                fb += `\n#### ${emoji[f.severity] || ''} [${f.severity}] ${f.title} (\`${f.id}\`)\n`;
+                fb += `- **Location:** \`${loc}\`\n- **Issue:** ${f.description}\n`;
+                fb += `- **Why:** ${f.rationale}\n- **Fix:** ${f.suggestion}\n`;
+                if (f.suggested_code) fb += `\n\`\`\`\n${f.suggested_code}\n\`\`\`\n`;
+              }
+              await github.rest.issues.createComment({ owner, repo, issue_number: pull_number, body: fb });
+            }
+
+            // ---------- Gate the PR ----------
+            if (critical > 0 || review.summary.recommendation === 'request_changes') {
+              core.setFailed(`Blocking: ${critical} critical finding(s); recommendation='${review.summary.recommendation}'.`);
+            }
+
+      - name: Report review failure on PR
+        if: failure() && steps.review.outcome == 'failure'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              body: `## 🤖 AI Code Review\n\n${review}\n\n---\n*Powered by Claude Code with smart rule loading*`
+              body: `## 🤖 AI Code Review\n\n⚠️ The AI review could not be completed (the reviewer did not produce valid output). See the [workflow logs](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) for details.`
             });
