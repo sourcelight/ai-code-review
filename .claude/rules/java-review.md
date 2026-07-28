@@ -1,3 +1,13 @@
+---
+patterns:
+  - "backend/**/*.java"
+  - "**/pom.xml"
+  - "backend/**/*.yml"
+  - "backend/**/*.yaml"
+  - "backend/**/*.properties"
+priority: 1
+---
+
 # Java Backend Review Guidelines
 
 The AI reviewer should verify the following Java and Spring Boot best practices:

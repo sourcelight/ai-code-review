@@ -1,38 +1,16 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code when working with code in this repository, both for **interactive development** and **automated code reviews**.
 
 ## Project Overview
 
-Full-stack application with Spring Boot backend (Java 21) and React frontend (TypeScript + Vite) featuring JWT authentication. The project includes AI-powered code review using Anthropic Claude via GitHub Actions.
+Full-stack application with Spring Boot backend (Java 21) and React frontend (TypeScript + Vite) featuring JWT authentication.
 
-## Development Commands
-
-### Backend (Spring Boot)
-
-```bash
-cd backend
-mvn spring-boot:run          # Start server on port 9090
-mvn test                     # Run all tests
-mvn clean install            # Clean build with dependency installation
-mvn test -Dtest=ClassName    # Run a single test class
-```
-
-### Frontend (React + Vite)
-
-```bash
-cd frontend
-npm install                  # Install dependencies
-npm run dev                  # Start dev server on port 5173
-npm run build                # Build for production (TypeScript compile + Vite build)
-npm run preview              # Preview production build
-```
-
-### Testing the Full Stack
-
-1. Start backend (runs on port 9090)
-2. Start frontend (runs on port 5173)
-3. Login credentials: `admin` / `password`
+**Repository Structure:**
+- `backend/` - Spring Boot REST API (port 9090)
+- `frontend/` - React + TypeScript + Vite (port 5173)
+- `.claude/rules/` - AI code review rules with pattern matching
+- `.github/workflows/` - CI/CD including automated code reviews
 
 ## Architecture
 
@@ -87,15 +65,6 @@ npm run preview              # Preview production build
 - Token storage: localStorage (key: `'token'`)
 - Request interceptor auto-attaches token to all API calls
 
-### AI Code Review System
-
-GitHub Actions workflow (`.github/workflows/ai-review.yml`) automatically reviews PRs using Anthropic Claude API. Review rules defined in:
-- `.github/ai-review/react-review.md` - React/TypeScript best practices
-- `.github/ai-review/java-review.md` - Java/Spring Boot patterns, SOLID principles
-- `.github/ai-review/security-review.md` - OWASP Top 10, JWT security, secrets management
-
-**To enable:** Add `ANTHROPIC_API_KEY` repository secret in GitHub Settings → Secrets and variables → Actions
-
 ## Important Conventions
 
 ### Backend
@@ -120,12 +89,6 @@ GitHub Actions workflow (`.github/workflows/ai-review.yml`) automatically review
 - **Password encoding** - BCrypt used; never store plaintext passwords
 - **Token storage** - localStorage used for simplicity; consider HttpOnly cookies for production
 
-## Testing Notes
-
-- Backend tests use Spring Boot Test framework
-- H2 console available at `http://localhost:9090/h2-console` (JDBC URL: `jdbc:h2:mem:testdb`, username: `sa`, password: empty)
-- Default test user created in-memory: `admin` / `password`
-
 ## Common Patterns
 
 **Adding a new protected endpoint:**
@@ -140,7 +103,137 @@ GitHub Actions workflow (`.github/workflows/ai-review.yml`) automatically review
 3. Check token in component or use route guards
 4. Import axios from `api/api.ts` for authenticated API calls
 
-## Configuration Files
+---
+
+## For Automated Code Reviews (CI/CD Context)
+
+When Claude Code runs in GitHub Actions for PR reviews:
+
+### Review Rules Location
+
+Code review guidelines are in `.claude/rules/` with automatic pattern matching:
+- `.claude/rules/react-review.md` - React/TypeScript best practices
+- `.claude/rules/java-review.md` - Java/Spring Boot patterns, SOLID principles
+- `.claude/rules/security-review.md` - OWASP Top 10, JWT security, secrets management
+
+**Smart Loading:** Rules load automatically based on changed files:
+- Frontend changes → loads `react-review.md`
+- Backend changes → loads `java-review.md`
+- Security rules → always loaded (`always_load: true`)
+
+### Review Focus
+
+When reviewing PRs, prioritize:
+
+1. **Security Issues** (Critical)
+   - SQL injection, XSS, authentication bypasses
+   - Hardcoded secrets or credentials
+   - Improper JWT validation
+   - CORS misconfigurations
+
+2. **Architecture Violations** (High)
+   - Business logic in controllers
+   - Field injection instead of constructor injection
+   - Direct entity exposure (not using DTOs)
+   - Violation of SOLID principles
+
+3. **Type Safety** (Medium)
+   - Use of `any` type in TypeScript
+   - Missing type annotations
+   - Improper Optional usage in Java
+
+4. **Best Practices** (Low)
+   - Code duplication
+   - Missing error handling
+   - Inconsistent naming
+   - TODO/FIXME comments
+
+### Review Output Format
+
+Provide reviews in this structure:
+
+```markdown
+# Code Review Summary
+
+## Overall Assessment
+[Brief assessment of changes - 2-3 sentences]
+
+## Critical Issues
+[Security vulnerabilities, breaking changes, or 'None found']
+- Issue description with file:line reference
+- Why it's critical
+- Suggested fix
+
+## Medium Issues
+[Architecture violations, type safety, or 'None found']
+- Issue description with file:line reference
+- Why it matters
+- Suggested fix
+
+## Minor Issues
+[Style, best practices, or 'None found']
+
+## Suggested Improvements
+[Optional refactoring, optimizations]
+
+## Positive Observations
+[Good practices worth highlighting]
+```
+
+### What NOT to Flag in Automated Reviews
+
+- Formatting issues (handled by linters/formatters)
+- Subjective style preferences
+- Naming that follows existing conventions
+- TODOs/FIXMEs (unless security-related)
+- Test code (unless obviously broken)
+
+### Context Awareness
+
+- **PR size matters**: Large PRs get high-level review; small PRs get detailed review
+- **Changed files matter**: Only review what actually changed
+- **Test changes**: Be lenient with test code unless tests are fundamentally broken
+- **Documentation**: Don't flag missing docs unless API contracts changed
+
+---
+
+## For Interactive Development
+
+### Development Commands
+
+**Backend (Spring Boot):**
+```bash
+cd backend
+mvn spring-boot:run          # Start server on port 9090
+mvn test                     # Run all tests
+mvn clean install            # Clean build with dependency installation
+mvn test -Dtest=ClassName    # Run a single test class
+```
+
+**Frontend (React + Vite):**
+```bash
+cd frontend
+npm install                  # Install dependencies
+npm run dev                  # Start dev server on port 5173
+npm run build                # Build for production
+npm run preview              # Preview production build
+```
+
+**Testing the Full Stack:**
+1. Start backend (runs on port 9090)
+2. Start frontend (runs on port 5173)
+3. Login credentials: `admin` / `password`
+
+### Testing Notes
+
+- Backend tests use Spring Boot Test framework
+- H2 console available at `http://localhost:9090/h2-console`
+  - JDBC URL: `jdbc:h2:mem:testdb`
+  - Username: `sa`
+  - Password: (empty)
+- Default test user: `admin` / `password`
+
+### Configuration Files
 
 - `backend/src/main/resources/application.yml` - Server port (9090), H2 config, JWT settings
 - `frontend/src/api/api.ts` - Backend base URL, request/response interceptors

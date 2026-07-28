@@ -1,0 +1,173 @@
+{
+  "title": "AI Code Review Result",
+  "description": "Structured output produced by the Claude Code AI reviewer for a single Pull Request. Consumed by the GitHub Actions workflow to render a summary comment, post inline review comments, and gate the PR on severity.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "overall_assessment", "summary", "findings"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0",
+      "description": "Version of this schema the reviewer targeted. Bump on breaking changes."
+    },
+
+    "review": {
+      "type": "object",
+      "description": "Optional metadata about the review context. The reviewer fills what it knows; the workflow may override with authoritative values.",
+      "additionalProperties": false,
+      "properties": {
+        "base_ref": { "type": "string", "description": "Target branch of the PR, e.g. 'main'." },
+        "head_ref": { "type": "string", "description": "Source branch of the PR." },
+        "commit_sha": { "type": "string", "description": "HEAD commit SHA that was reviewed." },
+        "files_reviewed": {
+          "type": "array",
+          "description": "Repo-relative paths the reviewer actually inspected.",
+          "items": { "type": "string" }
+        },
+        "rules_applied": {
+          "type": "array",
+          "description": "Which .claude/rules/*.md files were loaded for this review.",
+          "items": { "type": "string" }
+        }
+      }
+    },
+
+    "overall_assessment": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000,
+      "description": "2-4 sentence plain-language summary of the change and its overall quality."
+    },
+
+    "summary": {
+      "type": "object",
+      "description": "Roll-up counts and the recommended PR verdict. Used to gate the check.",
+      "additionalProperties": false,
+      "required": ["recommendation", "counts"],
+      "properties": {
+        "recommendation": {
+          "type": "string",
+          "enum": ["approve", "comment", "request_changes"],
+          "description": "approve = no blocking issues; comment = non-blocking notes only; request_changes = at least one issue that should block merge."
+        },
+        "counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["critical", "medium", "minor"],
+          "properties": {
+            "critical": { "type": "integer", "minimum": 0 },
+            "medium": { "type": "integer", "minimum": 0 },
+            "minor": { "type": "integer", "minimum": 0 }
+          },
+          "description": "Number of findings at each severity. Must equal the counts in the findings array."
+        }
+      }
+    },
+
+    "findings": {
+      "type": "array",
+      "description": "All issues found, most severe first. Empty array means no issues.",
+      "items": { "$ref": "#/definitions/finding" }
+    },
+
+    "positive_observations": {
+      "type": "array",
+      "description": "Good practices worth highlighting. Not rendered as issues.",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  },
+
+  "definitions": {
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "severity", "category", "title", "file", "description", "rationale", "suggestion"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Z]{3,4}-[0-9]{3}$",
+          "description": "Stable ID for the finding, e.g. 'SEC-001', 'ARCH-002', 'TYPE-003'. Prefix groups by category."
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["critical", "medium", "minor"],
+          "description": "critical = security/breaking; medium = architecture/type-safety; minor = style/best-practice. Matches CLAUDE.md review priorities."
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "security",
+            "architecture",
+            "type-safety",
+            "error-handling",
+            "performance",
+            "concurrency",
+            "react-hooks",
+            "accessibility",
+            "testing",
+            "logging",
+            "naming",
+            "duplication",
+            "best-practice",
+            "documentation"
+          ],
+          "description": "What kind of issue this is. Drives grouping and inline-comment labels."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Short one-line summary of the issue."
+        },
+        "file": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Repo-relative path of the file the finding is in, e.g. 'backend/src/main/java/com/example/UserController.java'."
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "1-indexed line in the NEW version of the file where the issue anchors. Required to post an inline comment; omit only for whole-file/cross-file findings."
+        },
+        "end_line": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Optional last line of a multi-line span. Must be >= line."
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What is wrong, concretely."
+        },
+        "rationale": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Why it matters (impact, risk, which principle/rule it violates)."
+        },
+        "suggestion": {
+          "type": "string",
+          "minLength": 1,
+          "description": "How to fix it, in prose."
+        },
+        "suggested_code": {
+          "type": "string",
+          "description": "Optional corrected code snippet. Rendered as a fenced block / GitHub suggestion when it replaces the exact lines."
+        },
+        "rule_source": {
+          "type": "string",
+          "description": "Which guideline triggered this, e.g. 'security-review.md#injection-risks', 'java-review.md#business-logic', or an external ref like 'OWASP A03:2021'."
+        },
+        "cwe": {
+          "type": "string",
+          "pattern": "^CWE-[0-9]+$",
+          "description": "Optional CWE identifier for security findings, e.g. 'CWE-89' (SQL Injection)."
+        },
+        "confidence": {
+          "type": "string",
+          "enum": ["high", "medium", "low"],
+          "description": "How sure the reviewer is. Lets the workflow suppress low-confidence findings if desired."
+        }
+      }
+    }
+  }
+}

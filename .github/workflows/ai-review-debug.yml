@@ -1,0 +1,244 @@
+name: AI Code Review (Debug - Manual Only)
+
+# This workflow is DISABLED for automatic triggering
+# It will only run when manually triggered from GitHub Actions UI
+# This prevents API conflicts with the main ai-review.yml workflow
+
+on:
+  workflow_dispatch:  # Manual trigger only
+    inputs:
+      pr_number:
+        description: 'PR number to review'
+        required: true
+        type: number
+
+# Uncomment below to enable automatic triggering (but this causes API conflicts)
+# on:
+#   pull_request:
+#     types: [opened, synchronize, reopened]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  ai-review-debug:
+    name: AI Code Review with Debug Output
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Test comment posting first
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ github.event.inputs.pr_number }},
+              body: '🧪 **Debug Test**: GitHub comment posting works!'
+            });
+
+      - name: Get PR diff
+        id: diff
+        run: |
+          # For manual trigger, we need to fetch the PR details
+          PR_NUMBER="${{ github.event.inputs.pr_number }}"
+          echo "Fetching PR #$PR_NUMBER details..."
+
+          # Get base branch from PR
+          BASE_REF=$(gh pr view "$PR_NUMBER" --json baseRefName --jq '.baseRefName')
+          HEAD_REF=$(gh pr view "$PR_NUMBER" --json headRefName --jq '.headRefName')
+
+          echo "Base branch: $BASE_REF"
+          echo "Head branch: $HEAD_REF"
+
+          git fetch origin "$BASE_REF"
+          git fetch origin "$HEAD_REF"
+          DIFF=$(git diff "origin/$BASE_REF"..."origin/$HEAD_REF")
+          echo "Diff size: $(echo "$DIFF" | wc -c) characters"
+          {
+            echo 'diff<<DELIMITER_DIFF_END'
+            echo "$DIFF"
+            echo 'DELIMITER_DIFF_END'
+          } >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Load review rules
+        id: rules
+        run: |
+          echo "Loading review rules..."
+
+          REACT_RULES=$(cat .github/ai-review/react-review.md)
+          echo "React rules size: $(echo "$REACT_RULES" | wc -c)"
+
+          JAVA_RULES=$(cat .github/ai-review/java-review.md)
+          echo "Java rules size: $(echo "$JAVA_RULES" | wc -c)"
+
+          SECURITY_RULES=$(cat .github/ai-review/security-review.md)
+          echo "Security rules size: $(echo "$SECURITY_RULES" | wc -c)"
+
+          {
+            echo 'react<<DELIMITER_REACT_END'
+            echo "$REACT_RULES"
+            echo 'DELIMITER_REACT_END'
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo 'java<<DELIMITER_JAVA_END'
+            echo "$JAVA_RULES"
+            echo 'DELIMITER_JAVA_END'
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo 'security<<DELIMITER_SECURITY_END'
+            echo "$SECURITY_RULES"
+            echo 'DELIMITER_SECURITY_END'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Run AI Code Review
+        id: review
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          REACT_RULES: ${{ steps.rules.outputs.react }}
+          JAVA_RULES: ${{ steps.rules.outputs.java }}
+          SECURITY_RULES: ${{ steps.rules.outputs.security }}
+          PR_DIFF: ${{ steps.diff.outputs.diff }}
+        run: |
+          echo "Building prompt..."
+
+          PROMPT="You are an expert code reviewer. Please review the following Pull Request changes according to these guidelines:
+
+          ## React Frontend Review Guidelines
+          $REACT_RULES
+
+          ## Java Backend Review Guidelines
+          $JAVA_RULES
+
+          ## Security Review Guidelines
+          $SECURITY_RULES
+
+          ## Pull Request Diff
+          \`\`\`diff
+          $PR_DIFF
+          \`\`\`
+
+          Please provide your review in the following format:
+
+          # Code Review Summary
+
+          ## Overall Assessment
+          (Brief summary)
+
+          ## Critical Issues
+          (List critical issues or 'None found')
+
+          ## Medium Issues
+          (List medium issues or 'None found')
+
+          ## Minor Issues
+          (List minor issues or 'None found')
+
+          ## Suggested Improvements
+          (List suggestions)
+
+          ## Positive Observations
+          (List positive aspects)
+          "
+
+          echo "Prompt size: $(echo "$PROMPT" | wc -c) characters"
+          echo "Calling Anthropic API..."
+
+          # Build JSON payload using jq to properly escape everything
+          PAYLOAD=$(jq -n \
+            --arg model "claude-sonnet-4-6" \
+            --argjson max_tokens 4096 \
+            --arg content "$PROMPT" \
+            '{
+              model: $model,
+              max_tokens: $max_tokens,
+              messages: [{
+                role: "user",
+                content: $content
+              }]
+            }')
+
+          RESPONSE=$(curl -s https://api.anthropic.com/v1/messages \
+            -H "content-type: application/json" \
+            -H "x-api-key: $ANTHROPIC_API_KEY" \
+            -H "anthropic-version: 2023-06-01" \
+            -d "$PAYLOAD")
+
+          echo "API Response received"
+          echo "Response size: $(echo "$RESPONSE" | wc -c) characters"
+
+          # Check for API errors
+          ERROR_TYPE=$(echo "$RESPONSE" | jq -r '.error.type // empty')
+          if [ ! -z "$ERROR_TYPE" ]; then
+            echo "ERROR: API returned error type: $ERROR_TYPE"
+            echo "Error message: $(echo "$RESPONSE" | jq -r '.error.message')"
+            exit 1
+          fi
+
+          REVIEW_TEXT=$(echo "$RESPONSE" | jq -r '.content[0].text')
+
+          echo "Review text extracted"
+          echo "Review size: $(echo "$REVIEW_TEXT" | wc -c) characters"
+          echo "First 200 characters of review:"
+          echo "$REVIEW_TEXT" | head -c 200
+          echo ""
+
+          if [ -z "$REVIEW_TEXT" ] || [ "$REVIEW_TEXT" = "null" ]; then
+            echo "ERROR: Review text is empty!"
+            exit 1
+          fi
+
+          {
+            echo 'review<<GITHUB_OUTPUT_DELIMITER_REVIEW_END'
+            echo "$REVIEW_TEXT"
+            echo 'GITHUB_OUTPUT_DELIMITER_REVIEW_END'
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Review saved to output successfully"
+
+      - name: Show review in logs
+        run: |
+          echo "==================================="
+          echo "AI REVIEW CONTENT:"
+          echo "==================================="
+          echo "${{ steps.review.outputs.review }}"
+          echo "==================================="
+
+      - name: Post review comment
+        env:
+          REVIEW_CONTENT: ${{ steps.review.outputs.review }}
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const review = process.env.REVIEW_CONTENT;
+
+            console.log('Review length:', review ? review.length : 0);
+            console.log('Review preview:', review ? review.substring(0, 100) : 'EMPTY');
+
+            if (!review || review.trim() === '' || review === 'null') {
+              core.setFailed('Review content is empty or null!');
+              return;
+            }
+
+            const body = `## 🤖 AI Code Review (Debug Mode)\n\n${review}\n\n---\n*Powered by Claude (Anthropic) - Manual Debug Run*`;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ github.event.inputs.pr_number }},
+              body: body
+            });
+
+            console.log('Comment posted successfully!');

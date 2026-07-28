@@ -1,3 +1,14 @@
+---
+patterns:
+  - "frontend/**/*.tsx"
+  - "frontend/**/*.ts"
+  - "frontend/**/*.jsx"
+  - "frontend/**/*.js"
+  - "**/package.json"
+  - "**/package-lock.json"
+priority: 1
+---
+
 # React Frontend Review Guidelines
 
 The AI reviewer should verify the following React and TypeScript best practices:

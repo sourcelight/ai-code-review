@@ -1,0 +1,178 @@
+name: AI Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  ai-review:
+    name: AI Code Review with Anthropic
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get PR diff
+        id: diff
+        run: |
+          BASE_REF="${{ github.base_ref }}"
+          echo "Base branch: $BASE_REF"
+          git fetch origin "$BASE_REF"
+          DIFF=$(git diff "origin/$BASE_REF"...HEAD)
+          echo "diff<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$DIFF" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Load review rules
+        id: rules
+        run: |
+          REACT_RULES=$(cat .github/ai-review/react-review.md)
+          JAVA_RULES=$(cat .github/ai-review/java-review.md)
+          SECURITY_RULES=$(cat .github/ai-review/security-review.md)
+
+          {
+            echo 'react<<EOF'
+            echo "$REACT_RULES"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo 'java<<EOF'
+            echo "$JAVA_RULES"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo 'security<<EOF'
+            echo "$SECURITY_RULES"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Run AI Code Review
+        id: review
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          REACT_RULES: ${{ steps.rules.outputs.react }}
+          JAVA_RULES: ${{ steps.rules.outputs.java }}
+          SECURITY_RULES: ${{ steps.rules.outputs.security }}
+          PR_DIFF: ${{ steps.diff.outputs.diff }}
+        run: |
+          # Check API key is set
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "ERROR: ANTHROPIC_API_KEY is not set"
+            exit 1
+          fi
+
+          PROMPT="You are an expert code reviewer. Please review the following Pull Request changes according to these guidelines:
+
+          ## React Frontend Review Guidelines
+          $REACT_RULES
+
+          ## Java Backend Review Guidelines
+          $JAVA_RULES
+
+          ## Security Review Guidelines
+          $SECURITY_RULES
+
+          ## Pull Request Diff
+          \`\`\`diff
+          $PR_DIFF
+          \`\`\`
+
+          Please provide your review in the following format:
+
+          # Code Review Summary
+
+          ## Overall Assessment
+          (Brief summary)
+
+          ## Critical Issues
+          (List critical issues or 'None found')
+
+          ## Medium Issues
+          (List medium issues or 'None found')
+
+          ## Minor Issues
+          (List minor issues or 'None found')
+
+          ## Suggested Improvements
+          (List suggestions)
+
+          ## Positive Observations
+          (List positive aspects)
+          "
+
+          # Build JSON payload using jq to properly escape everything
+          PAYLOAD=$(jq -n \
+            --arg model "claude-sonnet-4-6" \
+            --argjson max_tokens 4096 \
+            --arg content "$PROMPT" \
+            '{
+              model: $model,
+              max_tokens: $max_tokens,
+              messages: [{
+                role: "user",
+                content: $content
+              }]
+            }')
+
+          RESPONSE=$(curl -s https://api.anthropic.com/v1/messages \
+            -H "content-type: application/json" \
+            -H "x-api-key: $ANTHROPIC_API_KEY" \
+            -H "anthropic-version: 2023-06-01" \
+            -d "$PAYLOAD")
+
+          # Check for API errors
+          ERROR_TYPE=$(echo "$RESPONSE" | jq -r '.error.type // empty')
+          if [ ! -z "$ERROR_TYPE" ]; then
+            echo "ERROR: API returned error type: $ERROR_TYPE"
+            echo "Error message: $(echo "$RESPONSE" | jq -r '.error.message')"
+            echo "Full response:"
+            echo "$RESPONSE"
+            exit 1
+          fi
+
+          REVIEW_TEXT=$(echo "$RESPONSE" | jq -r '.content[0].text')
+
+          # Check if review is empty
+          if [ -z "$REVIEW_TEXT" ] || [ "$REVIEW_TEXT" = "null" ]; then
+            echo "ERROR: Review text is empty or null!"
+            echo "Response was:"
+            echo "$RESPONSE"
+            exit 1
+          fi
+
+          echo "Review extracted successfully (${#REVIEW_TEXT} characters)"
+
+          {
+            echo 'review<<EOF'
+            echo "$REVIEW_TEXT"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+      - name: Post review comment
+        env:
+          REVIEW_CONTENT: ${{ steps.review.outputs.review }}
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const review = process.env.REVIEW_CONTENT;
+
+            if (!review || review.trim() === '' || review === 'null') {
+              core.setFailed('Review content is empty or null!');
+              return;
+            }
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `## 🤖 AI Code Review\n\n${review}\n\n---\n*Powered by Claude (Anthropic)*`
+            });

@@ -1,3 +1,19 @@
+---
+patterns:
+  - "**/*.java"
+  - "**/*.ts"
+  - "**/*.tsx"
+  - "**/*.js"
+  - "**/*.jsx"
+  - "**/*.yml"
+  - "**/*.yaml"
+  - "**/*.properties"
+  - "**/Dockerfile"
+  - "**/.env*"
+priority: 2
+always_load: true
+---
+
 # Security Review Guidelines
 
 The AI reviewer should inspect for the following security concerns based on OWASP Top 10 and general security best practices:
